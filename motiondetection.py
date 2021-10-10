@@ -4,23 +4,29 @@
 
 from genericpath import isdir
 from PIL import Image
+import array
+
 import os
 import cv2
 import numpy as np
 
 
-# function that computes & returns the gradient in the x & y direction of an image
-# @params   image, image that needs the gradients computed
-# @returns  gradient_x, x-gradient
-# @returns  gradient_y, y-gradient
-def compute_gradient(image):
-    sobel_x = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-    sobel_y = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+def smallBoxFilter(img):
+    # filtering the image with a 3x3 box filter
+    filtered = cv2.boxFilter(img, -1, (3, 3))
+    return filtered
 
-    gradient_x: np.ndarray = cv2.filter2D(image, -1, sobel_x, borderType=cv2.BORDER_CONSTANT)
-    gradient_y: np.ndarray = cv2.filter2D(image, -1, sobel_y, borderType=cv2.BORDER_CONSTANT)
 
-    return gradient_x, gradient_y
+def largeBoxFilter(img):
+    # filtering the image with a 5x5 box filter
+    filtered = cv2.boxFilter(img, -1, (5, 5))
+    return filtered
+
+
+def gaussianFilter(img):
+    # filtering the image with a 2D Gaussian filter
+    filtered = cv2.GaussianBlur(img, sigmaX=2.0, sigmaY=2.0)
+    return filtered
 
 
 # Function that estimates the noise in the images. It does this by doing the
@@ -33,7 +39,6 @@ def compute_gradient(image):
 #           n, the number of images for averaging purposes
 # @returns  sigma_noise, the sigma(i, j) matrix of the noisy images
 def est_noise(totalnoise, n):
-
     # creates empty matrices to put the sigma(i, j) calculations into
     # the images are 240 x 320 in size
     sigma_noise = np.empty((240, 320))
@@ -61,26 +66,52 @@ def est_noise(totalnoise, n):
     return sigma_noise
 
 
+#
+# @params
+# @returns
+def temporalDerivative(n):
+
+    columns = 320
+    rows = 240
+    derivative_arr = []
+
+    for i in range(n):
+        # reads in the grayscale chair image, starts at img 10 since the scene does not change before that point
+        # this is the t-1 point
+        temporal_der = 0
+        chair_minus1: np.ndarray = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 10))
+        chair_minus1 = chair_minus1[:, :, 0]  # (240, 320)
+        print("chair min 1 is: ", chair_minus1)
+        # reads in the grayscale chair image at the t + 1 point
+        chair_plus1: np.ndarray = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 12))
+        chair_plus1 = chair_plus1[:, :, 0]  # (240, 320)
+        print("chair plus 1 is: ", chair_plus1)
+        # subtracts each pixel in I(t-1) image from each pixel in the I(t+1) image
+
+        derivative_arr.append([])
+
+        for j in range(rows):
+            derivative_arr[i].append([])
+
+            for k in range(columns):
+                difference = chair_plus1[i][j] - chair_minus1[i][j]
+                derivative_arr[i][j].append(difference)
+
+    print(derivative_arr)
+
+
 def main():
 
-    for x in range(41):
-        # reads in the grayscale chair image, starts at img 10 since the scene does not change before that point
-        chair = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(x + 10))
-
-        # truncates the 3rd column since it just has the RGB info & these are grayscale
-        chair = chair[:, :, 0]  # (256, 256)
-
-        # computes the x and y gradients at each pixel
-        [grad_x, grad_y] = compute_gradient(chair)
+    temporalDerivative(2)
 
     # creating empty array of the noise to keep track of the sum
     totalnoise = np.empty((240, 320))
 
     for x in range(8):
-        # reads in the first 10 grayscale chair images in order to compute the average
+        # reads in the first 8 grayscale chair images in order to compute the average
         # noise at each pixel to help determine the threshold for the moving images
         chair = cv2.imread('images/Office/Greyscale/g_advbgst1_21_000{}.jpg'.format(x + 2))
-        chair = chair[:, :, 0]  # (256, 256)
+        chair = chair[:, :, 0]  # (240, 240)
         # keeping track of the sum of the noise at each pixel value used to
         # calculate noise
         totalnoise = totalnoise + chair
@@ -91,11 +122,11 @@ def main():
 
     # averages the sigma(i, j) matrix to get the estimated noise, sigma
     avg_noise = np.average(sigma_noise)
-    print("the estimation of the average noise of the filtered images is: ", avg_noise)
+    # print("the estimation of the average noise of the filtered images is: ", avg_noise)
 
     # threshold is anything about 3*sigma of the noise in non-moving images
     threshold = avg_noise * 3
-    print(threshold)
+    # print(threshold)
 
 
 if __name__ == '__main__':
