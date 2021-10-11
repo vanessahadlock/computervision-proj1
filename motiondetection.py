@@ -1,28 +1,34 @@
 # Python 3.8.2
 # Computer Vision, Project 1
-# Stav Rones, Vanessa Hadlock
+# Vanessa Hadlock, Stav Rones
 
-from genericpath import isdir
-from PIL import Image
-import array
-
-import os
 import cv2
 import numpy as np
 
 
+# function that applies a 3x3 box filter to an image and returns the filtered image
+# @params   img, the unfiltered image
+#           filtered, the filtered image
+# @returns  sigma_noise
 def smallBoxFilter(img):
     # filtering the image with a 3x3 box filter
     filtered = cv2.boxFilter(img, -1, (3, 3))
     return filtered
 
 
+# function that applies a 5x5 box filter to an image and returns the filtered image
+# @params   img, the unfiltered image
+#           filtered, the filtered image
 def largeBoxFilter(img):
     # filtering the image with a 5x5 box filter
     filtered = cv2.boxFilter(img, -1, (5, 5))
     return filtered
 
 
+# function that applies a 2D gaussian filter with sigma = 2.0 and returns the
+# filtered image
+# @params   img, the unfiltered image
+#           filtered, the filtered image
 def gaussianFilter(img):
     # filtering the image with a 2D Gaussian filter
     filtered = cv2.GaussianBlur(img, sigmaX=2.0, sigmaY=2.0)
@@ -66,43 +72,65 @@ def est_noise(totalnoise, n):
     return sigma_noise
 
 
-#
-# @params
-# @returns
-def temporalDerivative(n):
+# function that takes the temporal derivative of n-number of images using 0.5[-1, 0, 1]
+# averaging filter. Allows it to be approximated by subtracting the pixels in the t-1 frame
+# from the pixels in the t+1 frame to estimate the temporal derivative at time t
+# the function than creates a  0 and 1 (binary) mask using the temporal derivative array
+# and the inputted threshold
+# @params   n, the number of images to take  the temporal derivative of
+#           threshold, the determined threshold for the binary mask
+# @returns  none
+def temporalDerivative(n, threshold):
 
     columns = 320
     rows = 240
-    derivative_arr = []
 
     for i in range(n):
+        derivative_arr = np.empty([240, 320], dtype=int)
         # reads in the grayscale chair image, starts at img 10 since the scene does not change before that point
         # this is the t-1 point
-        temporal_der = 0
-        chair_minus1: np.ndarray = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 10))
+        chair_minus1 = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 10))
         chair_minus1 = chair_minus1[:, :, 0]  # (240, 320)
-        print("chair min 1 is: ", chair_minus1)
+        print("chair min 1 is: ", len(chair_minus1))
+
+        fo3 = cv2.getGaussianKernel()
+
         # reads in the grayscale chair image at the t + 1 point
-        chair_plus1: np.ndarray = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 12))
+        chair_plus1 = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 12))
         chair_plus1 = chair_plus1[:, :, 0]  # (240, 320)
-        print("chair plus 1 is: ", chair_plus1)
+        print("chair plus 1 is: ", len(chair_plus1))
+
         # subtracts each pixel in I(t-1) image from each pixel in the I(t+1) image
+        derivative_arr = np.subtract(chair_plus1, chair_minus1)
 
-        derivative_arr.append([])
+        print(type(derivative_arr))
+        img = np.array(derivative_arr)
 
-        for j in range(rows):
-            derivative_arr[i].append([])
+        print(type(derivative_arr))
 
-            for k in range(columns):
-                difference = chair_plus1[i][j] - chair_minus1[i][j]
-                derivative_arr[i][j].append(difference)
+        th, im_th = cv2.threshold(derivative_arr, threshold, 255, type=cv2.THRESH_BINARY_INV)
 
-    print(derivative_arr)
+        cv2.imwrite('images/derivatives/threshold{}.jpg'.format(i+10), im_th)
+
+
+def mask(n):
+
+    for i in range(n):
+        chair = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 11))
+        chair_mask = cv2.imread('images/derivatives/threshold{}.jpg'.format(i + 10))
+
+        masked = cv2.bitwise_and(chair, chair_mask)
+        cv2.imwrite('images/motiondetection/masked{}.jpg'.format(i+11), masked)
 
 
 def main():
 
-    temporalDerivative(2)
+    # defines number of frames needed
+    n = 50
+    threshold = 37
+    temporalDerivative(n, threshold)
+
+    mask(n)
 
     # creating empty array of the noise to keep track of the sum
     totalnoise = np.empty((240, 320))
@@ -126,7 +154,7 @@ def main():
 
     # threshold is anything about 3*sigma of the noise in non-moving images
     threshold = avg_noise * 3
-    # print(threshold)
+    print(threshold)
 
 
 if __name__ == '__main__':
