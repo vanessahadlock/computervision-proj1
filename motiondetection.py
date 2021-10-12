@@ -143,7 +143,7 @@ def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
     print(f'Gaussian temporal filter: \n{gauss_filter.transpose()}')
 
     # get test image for size
-    filenames = os.listdir(path)
+    filenames = sorted(os.listdir(path))
     w, h = cv2.imread(f'{path}/{filenames[0]}', cv2.IMREAD_GRAYSCALE).shape
     
     # for every image, calculate the gaussian temporal derivative
