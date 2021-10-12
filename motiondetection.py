@@ -29,7 +29,7 @@ def calculateMotionThreshold(path, numImages, filter, debug):
 
     print(f'Calculating gradient threshold for motion of office image set...\n')
 
-    filenames = os.listdir(path)
+    filenames = sorted(os.listdir(path))
 
     # Get sample image to find its shape
     sample_img: np.ndarray = cv2.imread(f'{path}/{filenames[0]}', cv2.IMREAD_GRAYSCALE)
@@ -64,7 +64,7 @@ def calculateMotionThreshold(path, numImages, filter, debug):
 
     sigma = (sigma_sum / numImages) ** 0.5
 
-    return round(np.average(sigma * 3), 3)
+    return round(np.average(sigma * 4), 3)
 
 def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
     
@@ -98,7 +98,8 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
             print(f'img_minus1 filtered:\n{img_minus1}\n')
             print(f'img_plus1 filtered:\n{img_plus1}\n')
 
-        derivative_img = np.subtract(img_plus1, img_minus1) / 2
+        # derivative_img = np.subtract(img_plus1, img_minus1) / 2
+        derivative_img = abs((np.int8(img_plus1) - np.int8(img_minus1))/2)
 
         if (debug):
             print(f'derivative_img:\n{derivative_img}\n')
@@ -116,7 +117,7 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
                     img[r][c][1] = 255
                     img[r][c][2] = 0
 
-        cv2.imwrite(f'{outpath}/{filenames[i]}', mask_img)
+        cv2.imwrite(f'{outpath}/{filenames[i]}', img)
 
     return
 
@@ -224,8 +225,8 @@ def main():
     ######################################################################
 
     if (gradient == 'simple'):
-        simpleTemporalDerivative('./images/RedChair', './motion/RedChair', office_threshold, filter, debug)
-        simpleTemporalDerivative('./images/Office', './motion/Office', office_threshold, filter, debug)
+        simpleTemporalDerivative('./images/RedChair', './motion/RedChair', 10, filter, debug)
+        simpleTemporalDerivative('./images/Office', './motion/Office', 10, filter, debug)
     else:
         sigma = 1
         gaussTemporalDerivative('./images/Office', './motion/Office', sigma, office_threshold, filter, debug)
