@@ -2,161 +2,236 @@
 # Computer Vision, Project 1
 # Vanessa Hadlock, Stav Rones
 
-import cv2
 import numpy as np
+import ffmpeg
+import cv2
+import sys
+import os
 
+def filterImage(filter, img):
+    if (filter == 'box3'):
+        return cv2.boxFilter(img, -1, (3, 3))
 
-# function that applies a 3x3 box filter to an image and returns the filtered image
-# @params   img, the unfiltered image
-#           filtered, the filtered image
-# @returns  sigma_noise
-def smallBoxFilter(img):
-    # filtering the image with a 3x3 box filter
-    filtered = cv2.boxFilter(img, -1, (3, 3))
-    return filtered
+    if (filter == 'box5'):
+        return cv2.boxFilter(img, -1, (5, 5))
 
+    if (filter == 'gauss'):
+        sigma = 2
+        size = int(np.ceil(5 * sigma))
+        if (size % 2 == 0):
+            size += 1
+        return cv2.GaussianBlur(img,(size,size),sigma)
 
-# function that applies a 5x5 box filter to an image and returns the filtered image
-# @params   img, the unfiltered image
-#           filtered, the filtered image
-def largeBoxFilter(img):
-    # filtering the image with a 5x5 box filter
-    filtered = cv2.boxFilter(img, -1, (5, 5))
-    return filtered
+    return img
 
+def calculateMotionThreshold(path, numImages, filter, debug):
 
-# function that applies a 2D gaussian filter with sigma = 2.0 and returns the
-# filtered image
-# @params   img, the unfiltered image
-#           filtered, the filtered image
-def gaussianFilter(img):
-    # filtering the image with a 2D Gaussian filter
-    filtered = cv2.GaussianBlur(img, sigmaX=2.0, sigmaY=2.0)
-    return filtered
+    print(f'Calculating gradient threshold for motion of office image set...\n')
 
+    filenames = os.listdir(path)
 
-# Function that estimates the noise in the images. It does this by doing the
-# math described by the EST_NOISE algorithm to calculate the E_bar(i, j) and
-# uses that to find the sigma(i, j) matrices for the first 8 images that are not
-# moving in the chair scene
-# this is the standard of noise to help determine the threshold for
-# when an object is considered moving
-# @params   totalnoise, sum of the noise at each pixel over the 10 images
-#           n, the number of images for averaging purposes
-# @returns  sigma_noise, the sigma(i, j) matrix of the noisy images
-def est_noise(totalnoise, n):
-    # creates empty matrices to put the sigma(i, j) calculations into
-    # the images are 240 x 320 in size
-    sigma_noise = np.empty((240, 320))
+    # Get sample image to find its shape
+    sample_img: np.ndarray = cv2.imread(f'{path}/{filenames[0]}', cv2.IMREAD_GRAYSCALE)
+    sample_img = filterImage(filter, sample_img)
 
-    # averages the total noise (this is the E_bar(i, j) value)
-    average = totalnoise / n
+    # Iterate first numImages images to get average value of each pixel
+    pixel_sum = np.zeros(sample_img.shape)
+    for i in range(numImages):
 
-    # estimate sigma(i,j) for noisy images
-    for x in range(8):
-        # reads in the 10 noisy images
-        image_noisy = cv2.imread('images/Office/Greyscale/g_advbgst1_21_000{}.jpg'.format(x + 2))
-        # truncates the 3rd column since it just has the RGB info
-        image_noisy = image_noisy[:, :, 0]  # (256, 256)
-        # subtracts each pixel in noisy image from the average pixel value
-        IminusIk_noisy = average - image_noisy
-        # squares it
-        IminusIk_noisy = IminusIk_noisy ** 2
-        # adds this to the running sum of the sigma(i,j) matrix for the noisy images
-        sigma_noise = sigma_noise + IminusIk_noisy
+        # read in image as greyscale
+        img: np.ndarray = cv2.imread(f'{path}/{filenames[i]}', cv2.IMREAD_GRAYSCALE) 
 
-    # divides this by 1/n-1 before taking the square root of each summed element
-    sigma_noise = (1 / 7) * sigma_noise
-    sigma_noise = np.sqrt(sigma_noise)
+        # filter image
+        img = filterImage(filter, img)
+            
+        # add to pixel sum
+        pixel_sum += img
+    pixel_avg = pixel_sum / numImages
 
-    return sigma_noise
+    # Iterate first numImages images to sigma of each pixel
+    sigma_sum = np.zeros(sample_img.shape)
+    for j in range(numImages):
 
+        # read in image as greyscale
+        img2: np.ndarray = cv2.imread(f'{path}/{filenames[j]}', cv2.IMREAD_GRAYSCALE) 
 
-# function that takes the temporal derivative of n-number of images using 0.5[-1, 0, 1]
-# averaging filter. Allows it to be approximated by subtracting the pixels in the t-1 frame
-# from the pixels in the t+1 frame to estimate the temporal derivative at time t
-# the function than creates a  0 and 1 (binary) mask using the temporal derivative array
-# and the inputted threshold
-# @params   n, the number of images to take  the temporal derivative of
-#           threshold, the determined threshold for the binary mask
-# @returns  none
-def temporalDerivative(n, threshold):
+        # filter image
+        img2 = filterImage(filter, img2)
 
-    columns = 320
-    rows = 240
+        # calculate sigma array
+        sigma_sum += (pixel_avg - img2) ** 2
 
-    for i in range(n):
-        derivative_arr = np.empty([240, 320], dtype=int)
-        # reads in the grayscale chair image, starts at img 10 since the scene does not change before that point
-        # this is the t-1 point
-        chair_minus1 = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 10))
-        chair_minus1 = chair_minus1[:, :, 0]  # (240, 320)
-        print("chair min 1 is: ", len(chair_minus1))
+    sigma = (sigma_sum / numImages) ** 0.5
 
-        fo3 = cv2.getGaussianKernel()
+    return round(np.average(sigma * 3), 3)
 
-        # reads in the grayscale chair image at the t + 1 point
-        chair_plus1 = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 12))
-        chair_plus1 = chair_plus1[:, :, 0]  # (240, 320)
-        print("chair plus 1 is: ", len(chair_plus1))
+def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
+    print("Calculating simple temporal derivative...\n")
 
-        # subtracts each pixel in I(t-1) image from each pixel in the I(t+1) image
-        derivative_arr = np.subtract(chair_plus1, chair_minus1)
+    if os.path.isdir(outpath):
+        for filename in os.listdir(path):
+            os.remove(f'{outpath}/{filename}')
+    else:
+        os.mkdir(outpath)
 
-        print(type(derivative_arr))
-        img = np.array(derivative_arr)
+    filenames = os.listdir(path)
+    
+    for i in range(1, len(filenames) - 1):
 
-        print(type(derivative_arr))
+        # read in images as greyscale
+        img_minus1 = cv2.imread(f'{path}/{filenames[i - 1]}', cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(f'{path}/{filenames[i]}')
+        img_plus1 = cv2.imread(f'{path}/{filenames[i + 1]}', cv2.IMREAD_GRAYSCALE)
 
-        th, im_th = cv2.threshold(derivative_arr, threshold, 255, type=cv2.THRESH_BINARY_INV)
+        if((type(img_minus1) != np.ndarray) | (type(img) != np.ndarray)| (type(img_plus1) != np.ndarray)):
+            continue
 
-        cv2.imwrite('images/derivatives/threshold{}.jpg'.format(i+10), im_th)
+        # filter images
+        img_minus1 = filterImage(filter, img_minus1)
+        img_plus1 = filterImage(filter, img_plus1)
 
+        derivative_img = np.subtract(img_plus1, img_minus1) / 2
 
-def mask(n):
+        th, mask_img = cv2.threshold(derivative_img, threshold, 255, type=cv2.THRESH_BINARY_INV)
 
-    for i in range(n):
-        chair = cv2.imread('images/Office/Greyscale/g_advbgst1_21_00{}.jpg'.format(i + 11))
-        chair_mask = cv2.imread('images/derivatives/threshold{}.jpg'.format(i + 10))
+        row, col = mask_img.shape
+        for r in range(row):
+            for c in range(col):
+                if (mask_img[r][c] == 255):
+                    img[r][c][0] = 0
+                    img[r][c][1] = 255
+                    img[r][c][2] = 0
 
-        masked = cv2.bitwise_and(chair, chair_mask)
-        cv2.imwrite('images/motiondetection/masked{}.jpg'.format(i+11), masked)
+        cv2.imwrite(f'{outpath}/{filenames[i]}', img)
 
+    return
+
+def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
+    
+    print("Calculating gaussian temporal derivative...\n")
+
+    # remove images from motion directory
+    if os.path.isdir(outpath):
+        for filename in os.listdir(path):
+            if os.path.isfile(f'{outpath}/{filename}'):
+                os.remove(f'{outpath}/{filename}')
+    else:
+        os.mkdir(outpath)
+
+    # compute gaussian temporal filter based on sigma
+    gauss_len = int(np.ceil(5 * sigma))
+    if (gauss_len % 2 == 0):
+        gauss_len += 1
+
+    gauss_filter: np.ndarray = cv2.getGaussianKernel(gauss_len,sigma, cv2.CV_32F)    
+    half_gauss_len = int(np.floor(gauss_len/2))
+
+    print(f'Gaussian temporal filter: \n{gauss_filter.transpose()}')
+
+    # get test image for size
+    filenames = os.listdir(path)
+    w, h = cv2.imread(f'{path}/{filenames[0]}', cv2.IMREAD_GRAYSCALE).shape
+    
+    # for every image, calculate the gaussian temporal derivative
+    for imageIndex in range(len(filenames) - half_gauss_len):
+
+        # create 3D array of images
+        imgs = np.empty((w, h, len(gauss_filter)))
+        for count in range(len(gauss_filter)):
+            img = cv2.imread(f'{path}/{filenames[imageIndex + count]}', cv2.IMREAD_GRAYSCALE)
+            imgs[:,:,count] = filterImage(filter, img)
+
+        # calculate gaussian image using temporal filter
+        gauss_img = np.zeros((w, h))
+        x, y, t = imgs.shape 
+        for i in range(x):
+            for j in range(y):
+                for k in range(t):
+                    gauss_img[i][j] += imgs[i][j][k] * gauss_filter[k]
+
+        print('writing image')
+        th, mask_img = cv2.threshold(gauss_img, threshold, 255, type=cv2.THRESH_BINARY_INV)
+
+        row, col = mask_img.shape
+        out_img = cv2.imread(f'{path}/{filenames[imageIndex + half_gauss_len]}')
+        for r in range(row):
+            for c in range(col):
+                if (mask_img[r][c] == 255):
+                    out_img[r][c][0] = 0
+                    out_img[r][c][1] = 255
+                    out_img[r][c][2] = 0
+
+        cv2.imwrite(f'{outpath}/{filenames[imageIndex]}', out_img)
 
 def main():
 
-    # defines number of frames needed
-    n = 50
-    threshold = 37
-    temporalDerivative(n, threshold)
+    ######################################################################
+    ##################### Process command line args #####################
+    ######################################################################
 
-    mask(n)
+    filter = "none"
+    gradient = "simple"
+    debug = False
 
-    # creating empty array of the noise to keep track of the sum
-    totalnoise = np.empty((240, 320))
+    for i in range(1, len(sys.argv)):
 
-    for x in range(8):
-        # reads in the first 8 grayscale chair images in order to compute the average
-        # noise at each pixel to help determine the threshold for the moving images
-        chair = cv2.imread('images/Office/Greyscale/g_advbgst1_21_000{}.jpg'.format(x + 2))
-        chair = chair[:, :, 0]  # (240, 240)
-        # keeping track of the sum of the noise at each pixel value used to
-        # calculate noise
-        totalnoise = totalnoise + chair
+        arg = sys.argv[i]
 
-    # runs the EST_NOISE algorithm to return the sigma(i, j) of the first 10
-    # images to use as a baseline for the threshold & what is considered noise
-    sigma_noise = est_noise(totalnoise, 8)
+        if (arg == '-filter=box3'):
+            filter = 'box3'
+        elif (arg == '-filter=box5'):
+            filter = 'box5'
+        elif (arg == '-filter=gauss'):
+            filter = 'gauss'
+        elif (arg == '-grad=gauss'):
+            gradient = 'gauss'
+        elif (arg == '-debug'):
+            debug = True
+        else:
+            print(f"\ninvalid command line arg: {arg}")
+            print(f"\nusage: python3 motiondetection.py [\"-debug\"] [\"-grad=gauss\"] [\"-filter=box3\"] [\"-filter=box5\"] [\"-filter=gauss\"]\n")
+            return
 
-    # averages the sigma(i, j) matrix to get the estimated noise, sigma
-    avg_noise = np.average(sigma_noise)
-    # print("the estimation of the average noise of the filtered images is: ", avg_noise)
+    print(f"\nStarting program with filter= {filter} and gradient= {gradient}\n")
 
-    # threshold is anything about 3*sigma of the noise in non-moving images
-    threshold = avg_noise * 3
-    print(threshold)
+    ######################################################################
+    ### Calculate mask threshold using 3 * avg noise of first 8 images ###
+    ######################################################################
 
+    office_threshold = calculateMotionThreshold("./images/Office", 8, filter, debug)
+    print(f'\toffice_threshold = {office_threshold}\n')
+
+    chair_threshold = calculateMotionThreshold("./images/RedChair", 8, filter, debug)
+    print(f'\tchair_threshold = {chair_threshold}\n')
+
+    ######################################################################
+    ### Compute gradient images and map to binary based on threshold ###
+    ######################################################################
+
+    if (gradient == 'simple'):
+        simpleTemporalDerivative('./images/RedChair', './motion/RedChair', office_threshold, filter, debug)
+        simpleTemporalDerivative('./images/Office', './motion/Office', office_threshold, filter, debug)
+    else:
+        sigma = 1
+        gaussTemporalDerivative('./images/Office', './motion/Office', sigma, office_threshold, filter, debug)
+        gaussTemporalDerivative('./images/RedChair','./motion/RedChair', sigma, office_threshold, filter, debug)
+
+    ######################################################################
+    ##################### Convert image set into video #####################
+    ######################################################################
+
+    # path = './images/mask'
+    # filenames = os.listdir(path)
+    # img = cv2.imread(f'{path}/{filenames[0]}', cv2.IMREAD_GRAYSCALE)
+
+    # out = cv2.VideoWriter('test.avi', cv2.VideoWriter_fourcc(*'MJPG'), 15, img.shape)
+ 
+    # for i in range(len(filenames)):
+    #     img = cv2.imread(f'{path}/{filenames[i]}')
+    #     out.write(img)
+    # out.release()
+
+    return
 
 if __name__ == '__main__':
-    print('Start of the program')
     main()
