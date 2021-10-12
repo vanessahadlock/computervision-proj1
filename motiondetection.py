@@ -24,7 +24,6 @@ def filterImage(filter, img):
 
     return img
 
-
 def calculateMotionThreshold(path, numImages, filter, debug):
 
     print(f'Calculating gradient threshold for motion of office image set...\n')
@@ -66,7 +65,6 @@ def calculateMotionThreshold(path, numImages, filter, debug):
 
     return round((np.average(sigma)*4), 3)
 
-
 def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
     
     print(f"Saving masked images to {outpath}...\n")
@@ -86,6 +84,10 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
         img_minus1 = cv2.imread(f'{path}/{filenames[i - 1]}', cv2.IMREAD_GRAYSCALE)
         img = cv2.imread(f'{path}/{filenames[i]}')
         img_plus1 = cv2.imread(f'{path}/{filenames[i + 1]}', cv2.IMREAD_GRAYSCALE)
+
+        # img_minus1 = cv2.imread(f'{path}/{filenames[i - 1]}', cv2.IMREAD_GRAYSCALE)
+        # img = cv2.imread(f'{path}/{filenames[i]}')
+        # img_plus1 = cv2.imread(f'{path}/{filenames[i]}', cv2.IMREAD_GRAYSCALE)
 
         if debug:
             print(f'img_minus1 from {path}/{filenames[i - 1]}:\n{img_minus1}\n')
@@ -122,7 +124,6 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
 
     return
 
-
 def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
     
     print("Calculating gaussian temporal derivative...\n")
@@ -143,7 +144,10 @@ def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
     gauss_filter: np.ndarray = cv2.getGaussianKernel(gauss_len, sigma, cv2.CV_32F)
     half_gauss_len = int(np.floor(gauss_len/2))
 
-    print(f'Gaussian temporal filter: \n{gauss_filter.transpose()}')
+    gauss_filter[half_gauss_len] = 0
+    gauss_filter[0:half_gauss_len] = -gauss_filter[0:half_gauss_len]
+
+    print(f'Gaussian temporal filter: \n{np.round(gauss_filter.transpose(), 3)}')
 
     # get test image for size
     filenames = sorted(os.listdir(path))
@@ -167,7 +171,7 @@ def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
                     gauss_img[i][j] += imgs[i][j][k] * gauss_filter[k]
 
         print('writing image')
-        th, mask_img = cv2.threshold(gauss_img, threshold, 255, type=cv2.THRESH_BINARY_INV)
+        th, mask_img = cv2.threshold(gauss_img, threshold, 255, type=cv2.THRESH_BINARY)
 
         row, col = mask_img.shape
         out_img = cv2.imread(f'{path}/{filenames[imageIndex + half_gauss_len]}')
@@ -180,7 +184,6 @@ def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
                     out_img[r][c][2] = 0
 
         cv2.imwrite(f'{outpath}/{filenames[imageIndex]}', out_img)
-
 
 def main():
 
@@ -228,8 +231,8 @@ def main():
     ######################################################################
 
     if gradient == 'simple':
-        simpleTemporalDerivative('./images/RedChair', './motion/RedChair', 10, filter, debug)
         simpleTemporalDerivative('./images/Office', './motion/Office', 10, filter, debug)
+        simpleTemporalDerivative('./images/RedChair', './motion/RedChair', 10, filter, debug)
     else:
         sigma = 1
         gaussTemporalDerivative('./images/Office', './motion/Office', sigma, office_threshold, filter, debug)
