@@ -2,6 +2,7 @@
 # Computer Vision, Project 1
 # Vanessa Hadlock, Stav Rones
 
+from genericpath import isfile
 import numpy as np
 import ffmpeg
 import cv2
@@ -66,15 +67,17 @@ def calculateMotionThreshold(path, numImages, filter, debug):
     return round(np.average(sigma * 3), 3)
 
 def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
-    print("Calculating simple temporal derivative...\n")
+    
+    print(f"Saving masked images to {outpath}...\n")
 
     if os.path.isdir(outpath):
         for filename in os.listdir(path):
-            os.remove(f'{outpath}/{filename}')
+            if(os.path.isfile(f'{outpath}/{filename}')):
+                os.remove(f'{outpath}/{filename}')
     else:
         os.mkdir(outpath)
 
-    filenames = os.listdir(path)
+    filenames = sorted(os.listdir(path))
     
     for i in range(1, len(filenames) - 1):
 
@@ -83,16 +86,27 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
         img = cv2.imread(f'{path}/{filenames[i]}')
         img_plus1 = cv2.imread(f'{path}/{filenames[i + 1]}', cv2.IMREAD_GRAYSCALE)
 
-        if((type(img_minus1) != np.ndarray) | (type(img) != np.ndarray)| (type(img_plus1) != np.ndarray)):
-            continue
+        if (debug):
+            print(f'img_minus1 from {path}/{filenames[i - 1]}:\n{img_minus1}\n')
+            print(f'img_plus1 from {path}/{filenames[i + 1]}:\n{img_plus1}\n')
 
         # filter images
         img_minus1 = filterImage(filter, img_minus1)
         img_plus1 = filterImage(filter, img_plus1)
 
+        if (debug):
+            print(f'img_minus1 filtered:\n{img_minus1}\n')
+            print(f'img_plus1 filtered:\n{img_plus1}\n')
+
         derivative_img = np.subtract(img_plus1, img_minus1) / 2
 
-        th, mask_img = cv2.threshold(derivative_img, threshold, 255, type=cv2.THRESH_BINARY_INV)
+        if (debug):
+            print(f'derivative_img:\n{derivative_img}\n')
+
+        th, mask_img = cv2.threshold(derivative_img, threshold, 255, type=cv2.THRESH_BINARY)
+
+        if (debug):
+            print(f'mask_img:\n{mask_img}\n')
 
         row, col = mask_img.shape
         for r in range(row):
@@ -102,7 +116,7 @@ def simpleTemporalDerivative(path, outpath, threshold, filter, debug):
                     img[r][c][1] = 255
                     img[r][c][2] = 0
 
-        cv2.imwrite(f'{outpath}/{filenames[i]}', img)
+        cv2.imwrite(f'{outpath}/{filenames[i]}', mask_img)
 
     return
 
@@ -154,6 +168,7 @@ def gaussTemporalDerivative(path, outpath, sigma, threshold, filter, debug):
 
         row, col = mask_img.shape
         out_img = cv2.imread(f'{path}/{filenames[imageIndex + half_gauss_len]}')
+
         for r in range(row):
             for c in range(col):
                 if (mask_img[r][c] == 255):
